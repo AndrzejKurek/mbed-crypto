@@ -3475,7 +3475,7 @@ psa_status_t psa_generate_key(const psa_key_attributes_t *attributes,
 
 /**@}*/
 
-psa_status_t psa_register_secure_element(psa_drv_se_info_t se_info);
+psa_status_t psa_register_secure_element(psa_drv_se_t se_info);
 psa_status_t psa_register_se_slot(psa_key_id_t id,
                                   psa_key_slot_number_t slot,
                                   psa_key_lifetime_t lifetime,
