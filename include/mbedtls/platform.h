@@ -32,7 +32,7 @@
  */
 #ifndef MBEDTLS_PLATFORM_H
 #define MBEDTLS_PLATFORM_H
-
+#include <stdarg.h>
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
 #else
