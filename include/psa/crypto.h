@@ -61,6 +61,8 @@ extern "C" {
  * of integral types defined in "crypto_types.h". */
 #include "crypto_values.h"
 
+#include "crypto_se_driver.h"
+
 /** \defgroup initialization Library initialization
  * @{
  */
@@ -3472,6 +3474,15 @@ psa_status_t psa_generate_key(const psa_key_attributes_t *attributes,
                               psa_key_handle_t *handle);
 
 /**@}*/
+
+psa_status_t psa_register_secure_element(psa_drv_se_info_t se_info);
+psa_status_t psa_register_se_slot(psa_key_id_t id,
+                                  psa_key_slot_number_t slot,
+                                  psa_key_lifetime_t lifetime,
+                                  psa_key_type_t type,
+                                  size_t size,
+                                  uint8_t occupied,
+                                  int32_t owner);
 
 #ifdef __cplusplus
 }

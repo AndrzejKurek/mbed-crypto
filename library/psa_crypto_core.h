@@ -43,7 +43,10 @@ typedef struct
     psa_key_policy_t policy;
     psa_key_lifetime_t lifetime;
     psa_key_file_id_t persistent_storage_id;
+    size_t se_index;
+    uint32_t se_slot_number;
     unsigned allocated : 1;
+    unsigned se : 1;
     union
     {
         /* Raw-data key (key_type_is_raw_bytes() in psa_crypto.c) */

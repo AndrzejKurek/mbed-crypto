@@ -27,6 +27,12 @@
 
 #if defined(MBEDTLS_PSA_CRYPTO_C)
 
+#include "psa/crypto_se_driver.h"
+
+#define MAX_NUM_SECURE_ELEMENTS 3
+psa_drv_se_info_t secure_elements[MAX_NUM_SECURE_ELEMENTS];
+size_t num_secure_elements;
+
 #include "psa_crypto_service_integration.h"
 #include "psa/crypto.h"
 
@@ -95,6 +101,16 @@ static inline int safer_memcmp( const uint8_t *a, const uint8_t *b, size_t n )
     return( diff );
 }
 
+psa_status_t psa_register_secure_element(psa_drv_se_info_t se_info) {
+    printf("psa_register_secure_element called\n");
+    if ((num_secure_elements + 1) >= MAX_NUM_SECURE_ELEMENTS) {
+        printf("stsafe_register returning buffer too small:%lu\n", num_secure_elements);
+        return PSA_ERROR_BUFFER_TOO_SMALL;
+    }
+    secure_elements[num_secure_elements] = se_info;
+    num_secure_elements++;
+    return PSA_SUCCESS;
+}
 
 
 /****************************************************************/
@@ -3044,18 +3060,28 @@ static psa_status_t psa_ecdsa_verify( mbedtls_ecp_keypair *ecp,
     mbedtls_mpi_init( &r );
     mbedtls_mpi_init( &s );
 
-    if( signature_length != 2 * curve_bytes )
-        return( PSA_ERROR_INVALID_SIGNATURE );
+    printf(">psa_ecdsa_verify()\n");
 
+    if( signature_length != 2 * curve_bytes )
+    {
+        printf("invaliud sig\n");
+        return( PSA_ERROR_INVALID_SIGNATURE );
+    }
+
+    printf("r\n");
     MBEDTLS_MPI_CHK( mbedtls_mpi_read_binary( &r,
                                               signature,
                                               curve_bytes ) );
+    printf("checked r\n");
+    printf("s\n");
     MBEDTLS_MPI_CHK( mbedtls_mpi_read_binary( &s,
                                               signature + curve_bytes,
                                               curve_bytes ) );
 
+    printf("checked s\n");
     ret = mbedtls_ecdsa_verify( &ecp->grp, hash, hash_length,
                                 &ecp->Q, &r, &s );
+    printf("verified %d\n", ret);
 
 cleanup:
     mbedtls_mpi_free( &r );
@@ -3152,7 +3178,10 @@ psa_status_t psa_asymmetric_verify( psa_key_handle_t handle,
 
     status = psa_get_key_from_slot( handle, &slot, PSA_KEY_USAGE_VERIFY, alg );
     if( status != PSA_SUCCESS )
+    {
+        printf("failed getting key\n");
         return( status );
+    }
 
 #if defined(MBEDTLS_RSA_C)
     if( PSA_KEY_TYPE_IS_RSA( slot->type ) )
@@ -5340,15 +5369,18 @@ static psa_status_t psa_key_agreement_ecdh( const uint8_t *peer_key,
         mbedtls_ecc_group_to_psa( our_key->grp.id ),
         peer_key, peer_key_length,
         &their_key );
+    printf("a\n");
     if( status != PSA_SUCCESS )
         goto exit;
 
     status = mbedtls_to_psa_error(
         mbedtls_ecdh_get_params( &ecdh, their_key, MBEDTLS_ECDH_THEIRS ) );
+    printf("b\n");
     if( status != PSA_SUCCESS )
         goto exit;
     status = mbedtls_to_psa_error(
         mbedtls_ecdh_get_params( &ecdh, our_key, MBEDTLS_ECDH_OURS ) );
+    printf("c\n");
     if( status != PSA_SUCCESS )
         goto exit;
 
@@ -5358,8 +5390,10 @@ static psa_status_t psa_key_agreement_ecdh( const uint8_t *peer_key,
                                   shared_secret, shared_secret_size,
                                   mbedtls_ctr_drbg_random,
                                   &global_data.ctr_drbg ) );
+    printf("d\n");
 
 exit:
+    mbedtls_printf("status from import: %d\n", status);
     mbedtls_ecdh_free( &ecdh );
     mbedtls_ecp_keypair_free( their_key );
     mbedtls_free( their_key );
