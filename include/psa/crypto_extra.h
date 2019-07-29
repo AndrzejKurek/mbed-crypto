@@ -158,6 +158,7 @@ void mbedtls_psa_get_stats( mbedtls_psa_stats_t *stats );
  * @{
  */
 
+#if defined(MBEDTLS_PSA_CRYPTO_SE_C)
 /** \brief Set the slot number for a key in a secure element.
  *
  * \param[out] attributes       The attribute structure to write to.
@@ -191,7 +192,7 @@ static inline void psa_set_key_slot_number(
     attributes->has_slot_number = 1;
 }
 
-/** Retrieve the enrollment algorithm policy from key attributes.
+/** Retrieve the slot number from key attributes.
  *
  * \param[in] attributes        The key attribute structure to query.
  *
@@ -205,6 +206,7 @@ static inline psa_key_slot_number_t psa_get_key_slot_number(
 {
     return( attributes->slot_number );
 }
+#endif /* MBEDTLS_PSA_CRYPTO_SE_C */
 
 #if defined(MBEDTLS_PSA_CRYPTO_SE_C)
 /** Register a key that is already present in a secure element.
@@ -219,13 +221,15 @@ static inline psa_key_slot_number_t psa_get_key_slot_number(
  *
  * \retval #PSA_SUCCESS
  *         The key was successfully registered.
- *         Note that depending on the driver's
+ *         Note that depending on the design of the driver, this may or may
+ *         not guarantee that a key actually exists in the designated slot
+ *         and is compatible with the specified attributes.
  * \retval #PSA_ERROR_ALREADY_EXISTS
- *         There is already a key with thw identifier specified in
+ *         There is already a key with the identifier specified in
  *         \p attributes.
  * \retval #PSA_ERROR_INVALID_ARGUMENT
  *         \p attributes specifies a lifetime which is not located
- *         in a secure eleement.
+ *         in a secure element.
  * \retval #PSA_ERROR_INVALID_ARGUMENT
  *         No slot number is specified in \p attributes,
  *         or the specified slot number is not valid.
@@ -313,7 +317,7 @@ psa_status_t mbedtls_psa_register_se_key(
  *         The library has already been initialized. It is no longer
  *         possible to call this function.
  */
-psa_status_t mbedtls_psa_inject_entropy(const unsigned char *seed,
+psa_status_t mbedtls_psa_inject_entropy(uint8_t *seed,
                                         size_t seed_size);
 
 #if defined(PSA_PRE_1_0_KEY_DERIVATION)

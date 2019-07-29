@@ -35,6 +35,13 @@
 
 #include "psa_crypto_se.h"
 
+#if defined(MBEDTLS_PSA_ITS_FILE_C)
+#include "psa_crypto_its.h"
+#else /* Native ITS implementation */
+#include "psa/error.h"
+#include "psa/internal_trusted_storage.h"
+#endif
+
 #include "mbedtls/platform.h"
 #if !defined(MBEDTLS_PLATFORM_C)
 #define mbedtls_calloc calloc
@@ -74,6 +81,10 @@ psa_se_drv_table_entry_t *psa_get_se_driver_entry(
     psa_key_lifetime_t lifetime )
 {
     size_t i;
+    /* In the driver table, lifetime=0 means an entry that isn't used.
+     * No driver has a lifetime of 0 because it's a reserved value
+     * (which designates volatile keys). Make sure we never return
+     * a driver entry for lifetime 0. */
     if( lifetime == 0 )
         return( NULL );
     for( i = 0; i < PSA_MAX_SE_DRIVERS; i++ )
@@ -114,20 +125,68 @@ int psa_get_se_driver( psa_key_lifetime_t lifetime,
 /* Persistent data management */
 /****************************************************************/
 
+static psa_status_t psa_get_se_driver_its_file_uid(
+    const psa_se_drv_table_entry_t *driver,
+    psa_storage_uid_t *uid )
+{
+    if( driver->lifetime > PSA_MAX_SE_LIFETIME )
+        return( PSA_ERROR_NOT_SUPPORTED );
+
+#if SIZE_MAX > UINT32_MAX
+    /* ITS file sizes are limited to 32 bits. */
+    if( driver->internal.persistent_data_size > UINT32_MAX )
+        return( PSA_ERROR_NOT_SUPPORTED );
+#endif
+
+    /* See the documentation of PSA_CRYPTO_SE_DRIVER_ITS_UID_BASE. */
+    *uid = PSA_CRYPTO_SE_DRIVER_ITS_UID_BASE + driver->lifetime;
+    return( PSA_SUCCESS );
+}
+
 psa_status_t psa_load_se_persistent_data(
     const psa_se_drv_table_entry_t *driver )
 {
-    /*TODO*/
-    (void) driver;
-    return( PSA_SUCCESS );
+    psa_status_t status;
+    psa_storage_uid_t uid;
+
+    status = psa_get_se_driver_its_file_uid( driver, &uid );
+    if( status != PSA_SUCCESS )
+        return( status );
+
+    /* psa_get_se_driver_its_file_uid ensures that the size_t
+     * persistent_data_size is in range, but compilers don't know that,
+     * so cast to reassure them. */
+    return( psa_its_get( uid, 0,
+                         (uint32_t) driver->internal.persistent_data_size,
+                         driver->internal.persistent_data ) );
 }
 
 psa_status_t psa_save_se_persistent_data(
     const psa_se_drv_table_entry_t *driver )
 {
-    /*TODO*/
-    (void) driver;
-    return( PSA_SUCCESS );
+    psa_status_t status;
+    psa_storage_uid_t uid;
+
+    status = psa_get_se_driver_its_file_uid( driver, &uid );
+    if( status != PSA_SUCCESS )
+        return( status );
+
+    /* psa_get_se_driver_its_file_uid ensures that the size_t
+     * persistent_data_size is in range, but compilers don't know that,
+     * so cast to reassure them. */
+    return( psa_its_set( uid,
+                         (uint32_t) driver->internal.persistent_data_size,
+                         driver->internal.persistent_data,
+                         0 ) );
+}
+
+psa_status_t psa_destroy_se_persistent_data( psa_key_lifetime_t lifetime )
+{
+    psa_storage_uid_t uid;
+    if( lifetime > PSA_MAX_SE_LIFETIME )
+        return( PSA_ERROR_NOT_SUPPORTED );
+    uid = PSA_CRYPTO_SE_DRIVER_ITS_UID_BASE + lifetime;
+    return( psa_its_remove( uid ) );
 }
 
 psa_status_t psa_find_se_slot_for_key(
@@ -147,29 +206,29 @@ psa_status_t psa_find_se_slot_for_key(
 
     if( attributes->has_slot_number )
     {
+        /* The application wants to use a specific slot. Allow it if
+         * the driver supports it. On a system with isolation,
+         * the crypto service must check that the application is
+         * permitted to request this slot. */
         psa_drv_se_check_key_slot_validity_t p_check_slot =
             driver->methods->key_management->p_check_slot;
         if( p_check_slot == NULL )
             return( PSA_ERROR_NOT_SUPPORTED );
         *slot_number = psa_get_key_slot_number( attributes );
-        status = ( *p_check_slot )( &driver->context,
-                                    attributes,
-                                    *slot_number );
+        status = p_check_slot( &driver->context, attributes, *slot_number );
     }
     else
     {
+        /* The application didn't tell us which slot to use. Let the driver
+         * choose. This is the normal case. */
         psa_drv_se_allocate_key_t p_allocate =
             driver->methods->key_management->p_allocate;
-
-        /* If the driver doesn't tell us how to allocate a slot, that's
-         * not supported for the time being. */
         if( p_allocate == NULL )
             return( PSA_ERROR_NOT_SUPPORTED );
-
-        status = ( *p_allocate )( &driver->context,
-                                  driver->internal.persistent_data,
-                                  attributes,
-                                  slot_number );
+        status = p_allocate( &driver->context,
+                             driver->internal.persistent_data,
+                             attributes,
+                             slot_number );
     }
     return( status );
 }
@@ -179,6 +238,14 @@ psa_status_t psa_destroy_se_key( psa_se_drv_table_entry_t *driver,
 {
     psa_status_t status;
     psa_status_t storage_status;
+    /* Normally a missing method would mean that the action is not
+     * supported. But psa_destroy_key() is not supposed to return
+     * PSA_ERROR_NOT_SUPPORTED: if you can create a key, you should
+     * be able to destroy it. The only use case for a driver that
+     * does not have a way to destroy keys at all is if the keys are
+     * locked in a read-only state: we can use the keys but not
+     * destroy them. Hence, if the driver doesn't support destroying
+     * keys, it's really a lack of permission. */
     if( driver->methods->key_management == NULL ||
         driver->methods->key_management->p_destroy == NULL )
         return( PSA_ERROR_NOT_PERMITTED );
@@ -216,6 +283,8 @@ psa_status_t psa_register_se_driver(
     {
         return( PSA_ERROR_INVALID_ARGUMENT );
     }
+    if( lifetime > PSA_MAX_SE_LIFETIME )
+        return( PSA_ERROR_NOT_SUPPORTED );
 
     for( i = 0; i < PSA_MAX_SE_DRIVERS; i++ )
     {
@@ -242,8 +311,11 @@ psa_status_t psa_register_se_driver(
             status = PSA_ERROR_INSUFFICIENT_MEMORY;
             goto error;
         }
+        /* Load the driver's persistent data. On first use, the persistent
+         * data does not exist in storage, and is initialized to
+         * all-bits-zero by the calloc call just above. */
         status = psa_load_se_persistent_data( &driver_table[i] );
-        if( status != PSA_SUCCESS )
+        if( status != PSA_SUCCESS && status != PSA_ERROR_DOES_NOT_EXIST )
             goto error;
     }
     driver_table[i].internal.persistent_data_size =

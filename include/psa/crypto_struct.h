@@ -210,7 +210,7 @@ typedef struct psa_tls12_prf_key_derivation_s
      * hence we must store it for the lifetime of the operation.
      * This is different from HKDF, where the key is only used
      * in the extraction phase, but not during expansion. */
-    unsigned char *key;
+    uint8_t *key;
     size_t key_len;
 
     /* `A(i) + seed` in the notation of RFC 5246, Sect. 5 */
@@ -333,7 +333,7 @@ struct psa_key_attributes_s
 #if defined(MBEDTLS_PSA_CRYPTO_SE_C)
 #define MBEDTLS_FIELD_IF_HAS_PSA_CRYPTO_SE_C( x ) x,
 #else
-#define MBEDTLS_FIELD_IF_HAS_PSA_CRYPTO_SE_C /*empty*/
+#define MBEDTLS_FIELD_IF_HAS_PSA_CRYPTO_SE_C( x ) /*empty*/
 #endif
 
 #define PSA_KEY_ATTRIBUTES_INIT         \
