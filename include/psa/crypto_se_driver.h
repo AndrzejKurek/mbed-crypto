@@ -966,11 +966,6 @@ typedef psa_status_t (*psa_drv_se_export_key_t)(psa_drv_se_context_t *drv_contex
  *                              Driver developers should endeavor to match the
  *                              usages as close as possible.
  * \param[in] bits              The size in bits of the key to be generated.
- * \param[in] extra             Extra parameters for key generation. The
- *                              interpretation of this parameter should match
- *                              the interpretation in the `extra` parameter is
- *                              the `psa_generate_key` function
- * \param[in] extra_size        The size in bytes of the \p extra buffer
  * \param[out] p_pubkey_out     The buffer where the public key information will
  *                              be placed
  * \param[in] pubkey_out_size   The size in bytes of the `p_pubkey_out` buffer
@@ -982,8 +977,6 @@ typedef psa_status_t (*psa_drv_se_generate_key_t)(psa_drv_se_context_t *drv_cont
                                                   psa_key_type_t type,
                                                   psa_key_usage_t usage,
                                                   size_t bits,
-                                                  const void *extra,
-                                                  size_t extra_size,
                                                   uint8_t *p_pubkey_out,
                                                   size_t pubkey_out_size,
                                                   size_t *p_pubkey_length);

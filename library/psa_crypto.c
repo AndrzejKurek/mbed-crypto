@@ -1750,8 +1750,10 @@ psa_status_t psa_import_key( const psa_key_attributes_t *attributes,
             psa_get_se_driver_context( driver ),
             slot->data.se.slot_number,
             slot->lifetime, slot->type, slot->policy.alg, slot->policy.usage,
-            data, data_length,
-            &slot->data.se.bits );
+            data, data_length, &slot->data.se.bits );
+        if( status != PSA_SUCCESS )
+            goto exit;
+        /* TOnogrepDO: psa_check_key_slot_attributes? */
     }
     else
 #endif /* MBEDTLS_PSA_CRYPTO_SE_C */
@@ -3222,18 +3224,39 @@ psa_status_t psa_asymmetric_sign( psa_key_handle_t handle,
 {
     psa_key_slot_t *slot;
     psa_status_t status;
+#if defined(MBEDTLS_PSA_CRYPTO_SE_C)
+    const psa_drv_se_t *drv;
+    psa_drv_se_context_t *drv_context;
+#endif /* MBEDTLS_PSA_CRYPTO_SE_C */
 
     *signature_length = signature_size;
 
-    status = psa_get_transparent_key( handle, &slot, PSA_KEY_USAGE_SIGN, alg );
+    status = psa_get_key_from_slot( handle, &slot, PSA_KEY_USAGE_SIGN, alg );
     if( status != PSA_SUCCESS )
         goto exit;
+
     if( ! PSA_KEY_TYPE_IS_KEY_PAIR( slot->type ) )
     {
         status = PSA_ERROR_INVALID_ARGUMENT;
         goto exit;
     }
 
+#if defined(MBEDTLS_PSA_CRYPTO_SE_C)
+    if( psa_get_se_driver( slot->lifetime, &drv, &drv_context ) )
+    {
+        if( drv->asymmetric == NULL ||
+            drv->asymmetric->p_sign == NULL )
+        {
+            status = PSA_ERROR_NOT_SUPPORTED;
+            goto exit;
+        }
+        status = drv->asymmetric->p_sign(
+            drv_context,
+            slot->data.se.slot_number, alg, hash, hash_length, signature,
+            signature_size, signature_length );
+    }
+    else
+#endif /* MBEDTLS_PSA_CRYPTO_SE_C */
 #if defined(MBEDTLS_RSA_C)
     if( slot->type == PSA_KEY_TYPE_RSA_KEY_PAIR )
     {
@@ -3297,11 +3320,30 @@ psa_status_t psa_asymmetric_verify( psa_key_handle_t handle,
 {
     psa_key_slot_t *slot;
     psa_status_t status;
+#if defined(MBEDTLS_PSA_CRYPTO_SE_C)
+    const psa_drv_se_t *drv;
+    psa_drv_se_context_t *drv_context;
+#endif /* MBEDTLS_PSA_CRYPTO_SE_C */
 
-    status = psa_get_transparent_key( handle, &slot, PSA_KEY_USAGE_VERIFY, alg );
+    status = psa_get_key_from_slot( handle, &slot, PSA_KEY_USAGE_VERIFY, alg );
     if( status != PSA_SUCCESS )
         return( status );
 
+#if defined(MBEDTLS_PSA_CRYPTO_SE_C)
+    if( psa_get_se_driver( slot->lifetime, &drv, &drv_context ) )
+    {
+        if( drv->asymmetric == NULL ||
+            drv->asymmetric->p_verify == NULL )
+        {
+            return PSA_ERROR_NOT_SUPPORTED;
+        }
+        return( drv->asymmetric->p_verify(
+            drv_context,
+            slot->data.se.slot_number, alg, hash, hash_length, signature,
+            signature_length ) );
+    }
+    else
+#endif /* MBEDTLS_PSA_CRYPTO_SE_C */
 #if defined(MBEDTLS_RSA_C)
     if( PSA_KEY_TYPE_IS_RSA( slot->type ) )
     {
@@ -5827,16 +5869,31 @@ psa_status_t psa_generate_key( const psa_key_attributes_t *attributes,
     psa_status_t status;
     psa_key_slot_t *slot = NULL;
     psa_se_drv_table_entry_t *driver = NULL;
-    status = psa_start_key_creation( PSA_KEY_CREATION_GENERATE,
-                                     attributes, handle, &slot, &driver );
 #if defined(MBEDTLS_PSA_CRYPTO_SE_C)
-    if( driver != NULL )
-    {
-        /* Generating a key in a secure element is not implemented yet. */
-        status = PSA_ERROR_NOT_SUPPORTED;
-    }
+    const psa_drv_se_t *drv;
+    psa_drv_se_context_t *drv_context;
 #endif /* MBEDTLS_PSA_CRYPTO_SE_C */
-    if( status == PSA_SUCCESS )
+
+    status = psa_start_key_creation( PSA_KEY_CREATION_GENERATE, attributes, handle, &slot, &driver );
+    if( status != PSA_SUCCESS )
+        goto exit;
+
+#if defined(MBEDTLS_PSA_CRYPTO_SE_C)
+    if( psa_get_se_driver( slot->lifetime, &drv, &drv_context ) )
+    {
+        if( drv->key_management == NULL ||
+            drv->key_management->p_generate == NULL )
+        {
+            status = PSA_ERROR_NOT_SUPPORTED;
+            goto exit;
+        }
+        status = drv->key_management->p_generate(
+            drv_context,
+            slot->data.se.slot_number, slot->type, slot->policy.usage,
+            attributes->bits, NULL, 0, NULL);
+    }
+    else
+#endif /* MBEDTLS_PSA_CRYPTO_SE_C */
     {
         status = psa_generate_key_internal(
             slot, attributes->bits,
@@ -5844,6 +5901,7 @@ psa_status_t psa_generate_key( const psa_key_attributes_t *attributes,
     }
     if( status == PSA_SUCCESS )
         status = psa_finish_key_creation( slot, driver );
+exit:
     if( status != PSA_SUCCESS )
     {
         psa_fail_key_creation( slot, driver );
